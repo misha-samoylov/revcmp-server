@@ -2,10 +2,16 @@
 #include "BitStream.h"
 #include "MessageIdentifiers.h"
 
+#include "RPC4Plugin.h"
+
 #define SERVER_PORT 5040
 #define SERVER_COUNT_ALLOWED_CLIENTS 50
 #define SERVER_PASSWORD "Rumpelstiltskin"
 #define COUNT_SOCKET_DESCRIPTOR 1
+
+#define MAX_PLAYER_NAME 24
+
+RakNet::RPC4 rpc;
 
 enum GameMessages {
 	ID_PLAYER_COORDINATES = ID_USER_PACKET_ENUM + 1
@@ -21,6 +27,28 @@ struct PlayerInfo gPlayerInfo[2];
 unsigned char GetPacketIdentifier(RakNet::Packet* p);
 void UpdateNetwork(RakNet::RakPeerInterface* server);
 void SendPlayerPositions(RakNet::RakPeerInterface* server);
+
+//----------------------------------------------------
+// Sent by a client who's wishing to join us in our
+// multiplayer-like activities.
+//
+void ClientJoin(RakNet::BitStream* bitStream, RakNet::Packet* packet)
+{
+	CHAR szPlayerName[MAX_PLAYER_NAME];
+	BYTE byteNickLen;
+
+	// Читаем что пришло
+	bitStream->Read(byteNickLen);
+	bitStream->Read(szPlayerName, byteNickLen);
+	szPlayerName[byteNickLen] = '\0';
+
+	printf("ClientJoin. Nickname: %s\n", szPlayerName);
+	printf("%d\n", byteNickLen);
+
+	// Вызываем InitGame у клиента
+	RakNet::BitStream bsSend;
+	rpc.Signal("InitGame", &bsSend, HIGH_PRIORITY, RELIABLE_ORDERED, 0, packet->systemAddress, false, true);
+};
 
 int main()
 {
@@ -38,11 +66,18 @@ int main()
 	server->SetMaximumIncomingConnections(SERVER_COUNT_ALLOWED_CLIENTS);
 
 	if (result != RakNet::RAKNET_STARTED) {
-		puts("Server failed to start. Terminating\n");
+		printf("Server failed to start. Terminating\n");
 		exit(1);
 	}
 
-	printf("reVCMP server started on port: %d\n", SERVER_PORT);
+	server->AttachPlugin(&rpc);
+
+	// Если от клиента приходит RPC запрос ClientJoin, то вызывается функция 
+	rpc.RegisterSlot("ClientJoin", ClientJoin, 0);
+
+	printf("reVCMP server started. Port: %d. Max players: %d\n", SERVER_PORT, SERVER_COUNT_ALLOWED_CLIENTS);
+
+	
 
 	while (true) {
 		Sleep(5);
